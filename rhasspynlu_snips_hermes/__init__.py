@@ -1,13 +1,10 @@
 """Hermes MQTT server for Snips NLU"""
 import io
-import json
 import logging
 import time
 import typing
 from pathlib import Path
 
-import networkx as nx
-import rhasspynlu
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.intent import Intent, Slot, SlotRange
@@ -20,9 +17,11 @@ from rhasspyhermes.nlu import (
     NluTrain,
     NluTrainSuccess,
 )
-from rhasspynlu import Sentence, recognize
 from snips_nlu import SnipsNLUEngine
+from snips_nlu.dataset import Dataset
 from snips_nlu.default_configs import DEFAULT_CONFIGS
+
+from .train import write_dataset
 
 _LOGGER = logging.getLogger("rhasspynlu_snips_hermes")
 
@@ -37,24 +36,22 @@ class NluHermesMqtt(HermesClient):
         client,
         snips_language: str,
         engine_path: typing.Optional[Path] = None,
-        graph_path: typing.Optional[Path] = None,
-        default_entities: typing.Dict[str, typing.Iterable[Sentence]] = None,
+        dataset_path: typing.Optional[Path] = None,
         word_transform: typing.Optional[typing.Callable[[str], str]] = None,
-        replace_numbers: bool = False,
-        number_language: typing.Optional[str] = None,
+        no_overwrite_train: bool = False,
         site_ids: typing.Optional[typing.List[str]] = None,
     ):
-        super().__init__("rhasspynlu_hermes", client, site_ids=site_ids)
+        super().__init__("rhasspynlu_snips_hermes", client, site_ids=site_ids)
 
         self.subscribe(NluQuery, NluTrain)
 
         self.snips_language = snips_language
         self.engine_path = engine_path
-        self.graph_path = graph_path
-        self.default_entities = default_entities or {}
+        self.dataset_path = dataset_path
+
         self.word_transform = word_transform
-        self.replace_numbers = replace_numbers
-        self.number_language = number_language
+
+        self.no_overwrite_train = no_overwrite_train
 
         self.engine: typing.Optional[SnipsNLUEngine] = None
 
@@ -76,14 +73,6 @@ class NluHermesMqtt(HermesClient):
         try:
             self.maybe_load_engine()
             assert self.engine, "Snips engine not loaded. You may need to train."
-
-            # Replace digits with words
-            if self.replace_numbers:
-                # Have to assume whitespace tokenization
-                words = rhasspynlu.replace_numbers(
-                    query.input.split(), self.number_language
-                )
-                query.input = " ".join(words)
 
             input_text = query.input
 
@@ -158,24 +147,41 @@ class NluHermesMqtt(HermesClient):
     ) -> typing.AsyncIterable[
         typing.Union[typing.Tuple[NluTrainSuccess, TopicArgs], NluError]
     ]:
-        """Transform sentences to intent graph"""
+        """Transform sentences/slots into Snips NLU training dataset."""
         try:
-            # _LOGGER.debug("Loading %s", train.graph_path)
-            # with open(train.graph_path, mode="rb") as graph_file:
-            #     self.intent_graph = rhasspynlu.gzip_pickle_to_graph(graph_file)
+            assert train.sentences, "No training sentences"
 
             start_time = time.perf_counter()
-            new_engine = self.get_empty_engine()
 
-            # TODO
-            with io.open("etc/datasets/lights_dataset.json") as f:
-                sample_dataset = json.load(f)
-                new_engine = new_engine.fit(sample_dataset)
+            if self.dataset_path:
+                # Write to user path
+                self.dataset_path.parent.mkdir(exist_ok=True)
+                dataset_file = open(self.dataset_path, "w+")
+            else:
+                # Write to buffer
+                dataset_file = io.StringIO()
+
+            with dataset_file:
+                # Generate dataset
+                write_dataset(dataset_file, train.sentences or {}, train.slots or {})
+
+                # Train engine
+                dataset_file.seek(0)
+                dataset = Dataset.from_yaml_files(self.snips_language, [dataset_file])
+
+                new_engine = self.get_empty_engine()
+                new_engine = new_engine.fit(dataset)
 
             end_time = time.perf_counter()
 
             _LOGGER.debug("Trained Snips engine in %s second(s)", end_time - start_time)
             self.engine = new_engine
+
+            if not self.no_overwrite_train and self.engine_path:
+                # Save engine
+                self.engine_path.parent.mkdir(exist_ok=True)
+                self.engine.persist(self.engine_path)
+                _LOGGER.debug("Saved Snips engine to %s", self.engine_path)
 
             yield (NluTrainSuccess(id=train.id), {"site_id": site_id})
         except Exception as e:
@@ -185,6 +191,7 @@ class NluHermesMqtt(HermesClient):
             )
 
     def get_empty_engine(self):
+        """Load Snips engine configured for specific language."""
         assert (
             self.snips_language in DEFAULT_CONFIGS
         ), f"Snips language not supported: {self.snips_language}"
@@ -193,15 +200,14 @@ class NluHermesMqtt(HermesClient):
         return SnipsNLUEngine(config=DEFAULT_CONFIGS[self.snips_language])
 
     def maybe_load_engine(self):
+        """Load Snips engine if not already loaded."""
         if self.engine:
             # Already loaded
             return
 
-        if self.engine_path and self.engine_path.is_file():
+        if self.engine_path and self.engine_path.exists():
             _LOGGER.debug("Loading Snips engine from %s", self.engine_path)
             self.engine = SnipsNLUEngine.from_path(self.engine_path)
-        else:
-            self.engine = get_empty_engine()
 
     # -------------------------------------------------------------------------
 

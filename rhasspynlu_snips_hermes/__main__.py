@@ -24,7 +24,9 @@ def main():
         help="Snips language (de, en, es, fr, it, ja, ko, pt_br, pt_pt, zh)",
     )
     parser.add_argument("--engine-path", help="Path to read/write trained engine")
-    parser.add_argument("--intent-graph", help="Path to intent graph (gzipped pickle)")
+    parser.add_argument(
+        "--dataset-path", help="Path to write YAML dataset during training"
+    )
     parser.add_argument(
         "--casing",
         choices=["upper", "lower", "ignore"],
@@ -32,19 +34,10 @@ def main():
         help="Case transformation for input text (default: ignore)",
     )
     parser.add_argument(
-        "--replace-numbers",
+        "--no-overwrite-train",
         action="store_true",
-        help="Replace digits with words in queries (75 -> seventy five)",
+        help="Don't overwrite Snips engine configuration during training",
     )
-    parser.add_argument(
-        "--number-language",
-        help="Language/locale used for number replacement (default: same as snips)",
-    )
-    # parser.add_argument(
-    #     "--no-overwrite-train",
-    #     action="store_true",
-    #     help="Don't overwrite Snips engine configuration during training",
-    # )
 
     hermes_cli.add_hermes_args(parser)
 
@@ -54,8 +47,11 @@ def main():
     _LOGGER.debug(args)
 
     # Convert to Paths
-    if args.intent_graph:
-        args.intent_graph = Path(args.intent_graph)
+    if args.engine_path:
+        args.engine_path = Path(args.engine_path)
+
+    if args.dataset_path:
+        args.dataset_path = Path(args.dataset_path)
 
     # Listen for messages
     client = mqtt.Client()
@@ -63,10 +59,9 @@ def main():
         client,
         snips_language=args.language,
         engine_path=args.engine_path,
-        graph_path=args.intent_graph,
+        dataset_path=args.dataset_path,
         word_transform=get_word_transform(args.casing),
-        replace_numbers=args.replace_numbers,
-        number_language=args.number_language or args.language,
+        no_overwrite_train=args.no_overwrite_train,
         site_ids=args.site_id,
     )
 
