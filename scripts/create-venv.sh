@@ -35,6 +35,12 @@ grep '^rhasspy-' "${src_dir}/requirements.txt" | \
 
 pip3 ${PIP_INSTALL} -r requirements.txt
 
+# Install supported languages
+pip3 ${PIP_INSTALL} "${src_dir}/etc/languages"/*.tar.gz
+for lang in de en es fr it ja ko pt_br pt_pt zh; do
+    python3 -m snips_nlu download "${lang}"
+done
+
 # Optional development requirements
 pip3 ${PIP_INSTALL} -r requirements_dev.txt || \
     echo "Failed to install development requirements"

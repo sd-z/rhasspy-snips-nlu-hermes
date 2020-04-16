@@ -10,14 +10,14 @@ import rhasspyhermes.cli as hermes_cli
 
 from . import NluHermesMqtt
 
-_LOGGER = logging.getLogger("rhasspynlu_snips_hermes")
+_LOGGER = logging.getLogger("rhasspysnips_nlu_hermes")
 
 # -----------------------------------------------------------------------------
 
 
 def main():
     """Main method."""
-    parser = argparse.ArgumentParser(prog="rhasspy-nlu-snips-hermes")
+    parser = argparse.ArgumentParser(prog="rhasspy-snips-nlu-hermes")
     parser.add_argument(
         "--language",
         required=True,

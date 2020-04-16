@@ -15,4 +15,4 @@ fi
 source "${venv}/bin/activate"
 
 export PYTHONPATH="${src_dir}:${PYTHONPATH}"
-python3 -m rhasspynlu_snips_hermes "$@"
+python3 -m rhasspysnips_nlu_hermes "$@"

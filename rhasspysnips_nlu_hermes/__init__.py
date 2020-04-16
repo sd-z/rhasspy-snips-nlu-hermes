@@ -23,7 +23,7 @@ from snips_nlu.default_configs import DEFAULT_CONFIGS
 
 from .train import write_dataset
 
-_LOGGER = logging.getLogger("rhasspynlu_snips_hermes")
+_LOGGER = logging.getLogger("rhasspysnips_nlu_hermes")
 
 # -----------------------------------------------------------------------------
 
@@ -41,7 +41,7 @@ class NluHermesMqtt(HermesClient):
         no_overwrite_train: bool = False,
         site_ids: typing.Optional[typing.List[str]] = None,
     ):
-        super().__init__("rhasspynlu_snips_hermes", client, site_ids=site_ids)
+        super().__init__("rhasspysnips_nlu_hermes", client, site_ids=site_ids)
 
         self.subscribe(NluQuery, NluTrain)
 
