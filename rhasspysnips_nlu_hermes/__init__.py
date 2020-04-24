@@ -84,7 +84,7 @@ class NluHermesMqtt(HermesClient):
             result = self.engine.parse(input_text, query.intent_filter)
             intent_name = result.get("intent", {}).get("intentName")
 
-            if result and intent_name:
+            if intent_name:
                 slots = [
                     Slot(
                         slot_name=s["slotName"],
