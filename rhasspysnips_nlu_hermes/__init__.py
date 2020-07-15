@@ -1,10 +1,10 @@
 """Hermes MQTT server for Snips NLU"""
-import io
 import logging
 import time
 import typing
 from pathlib import Path
 
+import rhasspysnips_nlu
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.intent import Intent, Slot, SlotRange
@@ -18,10 +18,7 @@ from rhasspyhermes.nlu import (
     NluTrainSuccess,
 )
 from snips_nlu import SnipsNLUEngine
-from snips_nlu.dataset import Dataset
 from snips_nlu.default_configs import DEFAULT_CONFIGS
-
-from .train import write_dataset
 
 _LOGGER = logging.getLogger("rhasspysnips_nlu_hermes")
 
@@ -154,35 +151,18 @@ class NluHermesMqtt(HermesClient):
 
             start_time = time.perf_counter()
 
-            if self.dataset_path:
-                # Write to user path
-                self.dataset_path.parent.mkdir(exist_ok=True)
-                dataset_file = open(self.dataset_path, "w+")
-            else:
-                # Write to buffer
-                dataset_file = io.StringIO()
-
-            with dataset_file:
-                # Generate dataset
-                write_dataset(dataset_file, train.sentences or {}, train.slots or {})
-
-                # Train engine
-                dataset_file.seek(0)
-                dataset = Dataset.from_yaml_files(self.snips_language, [dataset_file])
-
-                new_engine = self.get_empty_engine()
-                new_engine = new_engine.fit(dataset)
+            new_engine = rhasspysnips_nlu.train(
+                sentences_dict=train.sentences,
+                language=self.snips_language,
+                slots_dict=train.slots,
+                engine_path=self.engine_path,
+                dataset_path=self.dataset_path,
+            )
 
             end_time = time.perf_counter()
 
             _LOGGER.debug("Trained Snips engine in %s second(s)", end_time - start_time)
             self.engine = new_engine
-
-            if not self.no_overwrite_train and self.engine_path:
-                # Save engine
-                self.engine_path.parent.mkdir(exist_ok=True)
-                self.engine.persist(self.engine_path)
-                _LOGGER.debug("Saved Snips engine to %s", self.engine_path)
 
             yield (NluTrainSuccess(id=train.id), {"site_id": site_id})
         except Exception as e:
