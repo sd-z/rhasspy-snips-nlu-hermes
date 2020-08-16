@@ -8,6 +8,7 @@ import rhasspysnips_nlu
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.intent import Intent, Slot, SlotRange
+from rhasspyhermes.handle import HandleToggleOn
 from rhasspyhermes.nlu import (
     NluError,
     NluIntent,
@@ -80,8 +81,17 @@ class NluHermesMqtt(HermesClient):
             # Do parsing
             result = self.engine.parse(input_text, query.intent_filter)
             intent_name = result.get("intent", {}).get("intentName")
-
-            if intent_name:
+            confidence_score = result.get("intent", {}).get("probability")
+            if query.implicit:
+                if confidence_score > 0.8:
+                    intent_recognized = intent_name is not None
+                    self.publish(HandleToggleOn(self.site_id))
+                else:
+                    intent_recognized = False
+            else:
+                intent_recognized = intent_name is not None
+            _LOGGER.debug("Intent recognized and Confidence suficient: %s", intent_recognized)
+            if intent_recognized:
                 slots = [
                     Slot(
                         slot_name=s["slotName"],
@@ -101,7 +111,7 @@ class NluHermesMqtt(HermesClient):
                     id=query.id,
                     site_id=query.site_id,
                     session_id=query.session_id,
-                    intent=Intent(intent_name=intent_name, confidence_score=1.0),
+                    intent=Intent(intent_name=intent_name, confidence_score=confidence_score),
                     slots=slots,
                 )
 
@@ -112,7 +122,7 @@ class NluHermesMqtt(HermesClient):
                         id=query.id,
                         site_id=query.site_id,
                         session_id=query.session_id,
-                        intent=Intent(intent_name=intent_name, confidence_score=1.0),
+                        intent=Intent(intent_name=intent_name, confidence_score=confidence_score),
                         slots=slots,
                         asr_tokens=[NluIntent.make_asr_tokens(query.input.split())],
                         raw_input=original_input,
@@ -123,8 +133,10 @@ class NluHermesMqtt(HermesClient):
                 )
             else:
                 # Not recognized
+                _LOGGER.debug("Intent not Recognized and Implicit: %s", query.implicit)
                 yield NluIntentNotRecognized(
                     input=query.input,
+                    implicit=query.implicit,
                     id=query.id,
                     site_id=query.site_id,
                     session_id=query.session_id,
@@ -189,7 +201,7 @@ class NluHermesMqtt(HermesClient):
         if self.engine_path and self.engine_path.exists():
             _LOGGER.debug("Loading Snips engine from %s", self.engine_path)
             self.engine = SnipsNLUEngine.from_path(self.engine_path)
-
+            
     # -------------------------------------------------------------------------
 
     async def on_message(
